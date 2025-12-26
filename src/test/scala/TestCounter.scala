@@ -5,7 +5,7 @@ import org.scalatest.flatspec.AnyFlatSpec
 class TestCounter extends AnyFlatSpec with ChiselScalatestTester {
   behavior of "counter_blackbox"
   it should "do cheking output value" in {
-    test(new MyCounter(4)).withAnnotations(Seq(VerilatorBackendAnnotation)) { c =>
+    test(new MyCounter(4)).withAnnotations(Seq(VerilatorBackendAnnotation, WriteVcdAnnotation)) { c =>
       c.io.rst.poke(true.B)
       c.clock.step()
       c.io.out.expect(0.U)
