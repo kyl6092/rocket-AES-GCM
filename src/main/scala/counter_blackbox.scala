@@ -9,7 +9,7 @@ class CounterBlackBox(val bitwidth: Int) extends ExtModule(Map("bitwidth" -> bit
         val en = IO(Input(Bool()))
         val out = IO(Output(UInt(bitwidth.W)))
     
-    addResource("/vsrc/counter.v")
+    addResource("/vsrc/example/counter.v")
 }
 
 
