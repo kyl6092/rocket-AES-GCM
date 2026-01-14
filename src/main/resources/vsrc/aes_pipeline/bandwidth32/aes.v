@@ -1,12 +1,11 @@
-`include "params.vh"
 module AESPipe_BlackBox(
     input clk,
     input reset_n,
     input chip_en,
     input we,
     input [7 : 0] address,
-    input [`WIDTH-1:0] datain,
-    output [`WIDTH-1:0] dataout
+    input [31:0] datain,
+    output reg [31:0] dataout
 );
 
 localparam IDLE = 0;
@@ -21,6 +20,7 @@ localparam ECB = 0;
 /* TO-DO extensions */
 
 localparam ADDR_CTRL = 8'h08;
+localparam ADDR_DATA = 8'h09;
 localparam ADDR_CFG = 8'h0a;
 localparam ADDR_KEY_START      = 8'h10;
 localparam ADDR_KEY_END        = 8'h17; // modified here temporarily
@@ -28,28 +28,36 @@ localparam ADDR_KEY_END        = 8'h17; // modified here temporarily
 localparam ENC = 1'b1;
 localparam DEC = 1'b0;
 integer i;
+genvar inst_i, inst_j;
 
 reg [1:0] st, nxt_st;
 
 reg core_ready;
-
-reg key_ready;
-wire [1:0] key_valid;
-wire key_finish;
-
+reg [1:0] cnt, wr_cnt;
+reg valid;
 
 reg [1:0] level;
 reg [1:0] opmode;
 reg encdec;
 
-wire [3:0] key_address;
-reg [127:0] round_key_mem [0:14];
-
-reg [`WIDTH-1:0] keys [0:`WORDS-1];
+reg key_ready;
+wire [1:0] key_valid;
+wire key_finish;
 reg [255:0] init_key;
+wire [3:0] key_address;
+reg [31:0] keys [0:7];
+reg [127:0] round_key_mem [0:14];
 wire [255:0] round_key, round_key_pre;
 
-reg [31:0] tmp;
+reg [127:0] state;
+reg [14:0] round_valid;
+reg [127:0] round_state [0:14];
+wire [127:0] round_state_sub [0:13];
+wire [127:0] round_state_rot [0:13];
+wire [127:0] round_state_mix [0:13];
+reg [127:0] cipher;
+reg [3:0] round_end;
+
 always@(*) begin: key_assignment
     for (i = 0; i < 8; i=i+1) begin
         init_key[i*32 +: 32] = keys[i];
@@ -68,6 +76,26 @@ aes_round_key u_round_key(
     .round_key_pre(round_key_pre),
     .round_key(round_key)
 );
+
+
+generate
+    for (inst_i = 1; inst_i <= 14; inst_i=inst_i+1) begin
+        aes_sub_bytes u_sub_bytes(
+            .state(round_state[inst_i]),
+            .state_sub(round_state_sub[inst_i-1])
+        );
+
+        aes_shift_rows u_shift_rows(
+            .state(round_state_sub[inst_i-1]),
+            .state_rot(round_state_rot[inst_i-1])
+        );
+
+        aes_mix_columns u_mix_columns(
+            .state(round_state_rot[inst_i-1]),
+            .state_mix(round_state_mix[inst_i-1])
+        );
+    end
+endgenerate
 
 
 always@(posedge clk or negedge reset_n) begin: state_machine
@@ -111,9 +139,18 @@ always@(posedge clk or negedge reset_n) begin: reg_update
         opmode <= ECB;
         level <= AES128;
         encdec <= ENC;
-        for(i = 0; i<`WORDS ; i=i+1) begin
+        state <= 0;
+        cnt <= 0;
+        wr_cnt <= 0;
+        for(i = 0; i<8 ; i=i+1) begin
             keys[i] <= 0;
         end
+        for(i = 0; i<15 ; i=i+1) begin
+            round_key_mem[i] <= 0;
+            round_state[i] <= 0;
+        end
+        round_valid <= 0;
+        round_end <= 0;
     end
     else begin
         if(chip_en) begin
@@ -136,13 +173,16 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                     case(level)
                         0: begin// AES-128
                             round_key_mem[0] <= init_key[127:0];
+                            round_end <= 10;
                         end
                         1: begin// AES-192
                             round_key_mem[0] <= init_key[127:0];
+                            round_end <= 12;
                         end
                         2: begin// AES-256
                             round_key_mem[0] <= init_key[127:0];
                             round_key_mem[1] <= init_key[255:128];
+                            round_end <= 14;
                         end
                     endcase
                 end
@@ -167,10 +207,60 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                     end
                 end
                 OPER: begin
+                    if (address == ADDR_DATA) begin
+                        if (cnt == 3) begin
+                            round_valid <= (round_valid << 1) | 15'd1;
+                            round_state[0] <= {datain, state[127:32]};
+                            cnt <= 0;
+                        end
+                        else begin
+                            round_valid <= (round_valid << 1);
+                            state <= {datain, state[127:32]};
+                            cnt <= cnt + 1;
+                        end
+
+                        if (round_valid[round_end] == 1'b1 || valid) begin
+                            wr_cnt <= wr_cnt + 1;
+                            case(wr_cnt)
+                                0: begin
+                                    dataout <= cipher[31:0];
+                                    valid <= round_valid[round_end];
+                                end
+                                1: dataout <= cipher[63:32];
+                                2: dataout <= cipher[95:64];
+                                3: begin
+                                    dataout <= cipher[127:96];
+                                    valid <= 1'b0;
+                                end
+                            endcase
+                        end
+
+                        for (i = 0; i < 14; i=i+1) begin
+                            if (i==0) begin
+                                round_state[i+1] <= round_state[i] ^ round_key_mem[i];
+                            end
+                            else begin
+                                round_state[i+1] <= round_state_mix[i-1] ^ round_key_mem[i];
+                            end
+                        end
+/*                        for (i = 0; i < 15; i=i+1) begin
+                            
+                        end*/
+                    end
                 end
             endcase
         end
     end
+end
+
+
+always@(*) begin
+    cipher = 0;
+    case(level)
+        0: cipher = round_state_rot[9] ^ round_key_mem[10];
+        1: cipher = round_state_rot[11] ^ round_key_mem[12];
+        2: cipher = round_state_rot[13] ^ round_key_mem[14];
+    endcase
 end
 
 endmodule

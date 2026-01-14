@@ -1,4 +1,3 @@
-`include "params.vh"
 module aes_round_key(
     input clk,
     input reset_n,

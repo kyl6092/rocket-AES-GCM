@@ -21,7 +21,7 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
 
   // Control related
   val ADDR_CTRL   = 8
-//   val ADDR_STATUS = 9
+  val ADDR_DATA = 9
   val ADDR_CONFIG = 10
   val ADDR_KEY0   = 16
   val ENC = 1
@@ -33,7 +33,7 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
 
   // Testcase settings
   val KEYLEN = 8
-  val SIZE_OF_DATA = 16
+  val SIZE_OF_DATA = 32
 
   describe ("TestAES_pipe encipher") {
     it ("do checking waveform") {
@@ -55,7 +55,7 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
         var cipher_len = 0
 
         // System Config
-        val CFG = ((ENC<<4) | (AES256))&0x1f
+        val CFG = ((ENC<<4) | (AES128))&0x1f
         c.io.address.poke(ADDR_CONFIG)
         c.io.datain.poke(CFG)
         c.clock.step()
@@ -79,11 +79,35 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
 
         c.io.address.poke(ADDR_CTRL)
         c.io.datain.poke(1)
-        c.clock.step(50)
+        c.clock.step(20)
+        c.io.address.poke(ADDR_DATA)
 
+        while (processed < SIZE_OF_DATA) {
+          // Ensure to read a complete block
+          while (total < 16) {
+            input_len = input_fptr.read(input_buffer, total, 16-total)
+            total+=input_len
+          }
+          processed+=16
+          total = 0
 
+          // Transferring data to AES core
+          for (i <- 0 until 4) {
+            val byte1 = input_buffer(4*i) & 0xff
+            val byte2 = input_buffer(4*i+1) & 0xff
+            val byte3 = input_buffer(4*i+2) & 0xff
+            val byte4 = input_buffer(4*i+3) & 0xff
+            var tmp = (byte1 << 24 | byte2 << 16 | byte3 << 8 | byte4) & 0xFFFFFFFFL
+            if (verbose == 1) {
+              println("Plain Text: "+tmp.toHexString)
+            }
+            c.io.datain.poke(tmp)
+            c.clock.step()
+            cycle+=1
+          }
+        }
 
-        
+        c.clock.step(20)        
         
         // Report Clock Cycle
         print("Cycles = "+cycle.toString+"\n\n")

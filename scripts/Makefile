@@ -1,5 +1,5 @@
 
-SIZE := 16
+SIZE := 32
 
 AES128_ECB: testcase_generator.py
 	python testcase_generator.py --mode "ECB" --keylen 16 --size ${SIZE}

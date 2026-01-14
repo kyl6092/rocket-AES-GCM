@@ -14,7 +14,9 @@ class AESPipe_BlackBox extends ExtModule {
     addResource("/vsrc/aes_pipeline/bandwidth32/aes.v")
     addResource("/vsrc/aes_pipeline/bandwidth32/aes_round_key.v")
     addResource("/vsrc/aes_pipeline/bandwidth32/aes_sbox.v")
-    addResource("/vsrc/aes_pipeline/bandwidth32/params.vh")
+    addResource("/vsrc/aes_pipeline/bandwidth32/aes_sub_bytes.v")
+    addResource("/vsrc/aes_pipeline/bandwidth32/aes_shift_rows.v")
+    addResource("/vsrc/aes_pipeline/bandwidth32/aes_mix_columns.v")
 }
 
 
