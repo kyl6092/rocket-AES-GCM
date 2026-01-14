@@ -32,19 +32,22 @@ integer i;
 reg [1:0] st, nxt_st;
 
 reg core_ready;
+
 reg key_ready;
-wire key_valid;
+wire [1:0] key_valid;
+wire key_finish;
 
 
 reg [1:0] level;
 reg [1:0] opmode;
 reg encdec;
 
-reg [3:0] key_address;
+wire [3:0] key_address;
+reg [127:0] round_key_mem [0:14];
 
 reg [`WIDTH-1:0] keys [0:`WORDS-1];
 reg [255:0] init_key;
-wire [127:0] round_key;
+wire [255:0] round_key, round_key_pre;
 
 reg [31:0] tmp;
 always@(*) begin: key_assignment
@@ -52,15 +55,17 @@ always@(*) begin: key_assignment
         init_key[i*32 +: 32] = keys[i];
     end
 end
+
 aes_round_key u_round_key(
     .clk(clk),
     .reset_n(reset_n),
-    .rd(0),
     .ready(key_ready),
     .level(level),
     .init_key(init_key),
     .address(key_address),
-    .valid(key_valid),
+    .w_valid(key_valid),
+    .finish(key_finish),
+    .round_key_pre(round_key_pre),
     .round_key(round_key)
 );
 
@@ -85,7 +90,13 @@ always@(*) begin: state_update
             end
         end
         KEY: begin
-            nxt_st = KEY;
+            if (key_finish)
+                nxt_st = OPER;
+            else
+                nxt_st = KEY;
+        end
+        OPER: begin
+            nxt_st = OPER;
         end
         default: begin
             nxt_st = IDLE;
@@ -120,12 +131,46 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                 else if (address >= ADDR_KEY_START && address <= ADDR_KEY_END)
                     keys[address[2:0]] <= datain;
             end
+            case(st)
+                IDLE: begin
+                    case(level)
+                        0: begin// AES-128
+                            round_key_mem[0] <= init_key[127:0];
+                        end
+                        1: begin// AES-192
+                            round_key_mem[0] <= init_key[127:0];
+                        end
+                        2: begin// AES-256
+                            round_key_mem[0] <= init_key[127:0];
+                            round_key_mem[1] <= init_key[255:128];
+                        end
+                    endcase
+                end
+                KEY: begin
+                    if (key_valid[0]) begin
+                        case(level)
+                            0,2: begin
+                                round_key_mem[key_address] <= round_key[127:0];
+                            end
+                            1: begin
+                                if (key_valid[1]) begin
+                                    round_key_mem[key_address] <= round_key[191:64];
+                                    round_key_mem[key_address-1] <= {round_key[63:0], round_key_pre[191:128]};
+                                end
+                                else
+                                    round_key_mem[key_address] <= round_key[127:0];
+                            end
+                        endcase
+                    end
+                    if (key_valid[1] && level == 2) begin
+                        round_key_mem[key_address] <= round_key_pre[255:128];
+                    end
+                end
+                OPER: begin
+                end
+            endcase
         end
     end
 end
-
-
-
-
 
 endmodule
