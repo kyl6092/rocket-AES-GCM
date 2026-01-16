@@ -1,0 +1,213 @@
+
+11. Printing statistics.
+
+=== AESbase_BlackBox ===
+
+        +----------Local Count, excluding submodules.
+        | 
+      479 wires
+     1587 wire bits
+       39 public wires
+     1147 public wire bits
+        7 ports
+       76 port bits
+      993 cells
+       73   $_ANDNOT_
+        1   $_AND_
+      386   $_DFFE_PN0P_
+      132   $_DFF_PN0_
+      118   $_MUX_
+        9   $_NAND_
+       13   $_NOR_
+        3   $_NOT_
+      140   $_ORNOT_
+      118   $_OR_
+        1 submodules
+        1   aes_core
+
+=== aes_core ===
+
+        +----------Local Count, excluding submodules.
+        | 
+       62 wires
+     1214 wire bits
+       35 public wires
+     1187 public wire bits
+       11 ports
+      520 port bits
+      202 cells
+        9   $_ANDNOT_
+        4   $_AND_
+        1   $_DFFE_PN0P_
+        1   $_DFFE_PN1P_
+        2   $_DFF_PN0_
+        1   $_DFF_PN1_
+      166   $_MUX_
+        2   $_NAND_
+        6   $_NOR_
+        1   $_ORNOT_
+        9   $_OR_
+        4 submodules
+        1   aes_decipher_block
+        1   aes_encipher_block
+        1   aes_key_mem
+        1   aes_sbox
+
+=== aes_decipher_block ===
+
+        +----------Local Count, excluding submodules.
+        | 
+     3290 wires
+     9817 wire bits
+      612 public wires
+     7139 public wire bits
+        9 ports
+      393 port bits
+     2991 cells
+      826   $_ANDNOT_
+        7   $_AND_
+      134   $_DFFE_PN0P_
+        1   $_DFFE_PN1P_
+        3   $_DFF_PN0_
+        1   $_DFF_PN1_
+       33   $_MUX_
+        6   $_NAND_
+        9   $_NOR_
+       62   $_NOT_
+       85   $_ORNOT_
+      269   $_OR_
+      363   $_XNOR_
+     1192   $_XOR_
+        1 submodules
+        1   aes_inv_sbox
+
+=== aes_encipher_block ===
+
+        +----------Local Count, excluding submodules.
+        | 
+     1961 wires
+     5152 wire bits
+      142 public wires
+     3333 public wire bits
+       11 ports
+      457 port bits
+     2131 cells
+      665   $_ANDNOT_
+        6   $_AND_
+        2   $_DFFE_PN0N_
+      132   $_DFFE_PN0P_
+        1   $_DFFE_PN1P_
+        3   $_DFF_PN0_
+        1   $_DFF_PN1_
+      161   $_MUX_
+        3   $_NAND_
+       43   $_NOR_
+       84   $_NOT_
+      221   $_ORNOT_
+      133   $_OR_
+      279   $_XNOR_
+      397   $_XOR_
+
+=== aes_inv_sbox ===
+
+        +----------Local Count, excluding submodules.
+        | 
+     5194 wires
+     7048 wire bits
+      258 public wires
+     2112 public wire bits
+        2 ports
+       64 port bits
+     4968 cells
+     1120   $_ANDNOT_
+       44   $_AND_
+       24   $_NAND_
+       72   $_NOR_
+       44   $_ORNOT_
+     3664   $_OR_
+
+=== aes_key_mem ===
+
+        +----------Local Count, excluding submodules.
+        | 
+     5742 wires
+     9289 wire bits
+       62 public wires
+     3609 public wire bits
+       10 ports
+      457 port bits
+     8402 cells
+     2216   $_ANDNOT_
+        7   $_AND_
+     2189   $_DFFE_PN0P_
+        3   $_DFF_PN0_
+        1   $_DFF_PN1_
+      932   $_MUX_
+       10   $_NAND_
+        3   $_NOR_
+      276   $_NOT_
+      134   $_ORNOT_
+     1977   $_OR_
+      267   $_XNOR_
+      387   $_XOR_
+
+=== aes_sbox ===
+
+        +----------Local Count, excluding submodules.
+        | 
+     5150 wires
+     7004 wire bits
+      258 public wires
+     2112 public wire bits
+        2 ports
+       64 port bits
+     4924 cells
+     1100   $_ANDNOT_
+       68   $_AND_
+       16   $_NAND_
+       64   $_NOR_
+       36   $_ORNOT_
+     3640   $_OR_
+
+=== design hierarchy ===
+
+        +----------Count including submodules.
+        | 
+    24611 AESbase_BlackBox
+      202 aes_core
+     2991   aes_decipher_block
+     4968     aes_inv_sbox
+     2131   aes_encipher_block
+     8402   aes_key_mem
+     4924   aes_sbox
+
+        +----------Count including submodules.
+        | 
+    21878 wires
+    41111 wire bits
+     1406 public wires
+    20639 public wire bits
+       52 ports
+     2031 port bits
+        - memories
+        - memory bits
+        - processes
+    24611 cells
+     6009   $_ANDNOT_
+      137   $_AND_
+        2   $_DFFE_PN0N_
+     2842   $_DFFE_PN0P_
+        3   $_DFFE_PN1P_
+      143   $_DFF_PN0_
+        4   $_DFF_PN1_
+     1410   $_MUX_
+       70   $_NAND_
+      210   $_NOR_
+      425   $_NOT_
+      661   $_ORNOT_
+     9810   $_OR_
+      909   $_XNOR_
+     1976   $_XOR_
+        1 submodules
+        1   aes_core
+

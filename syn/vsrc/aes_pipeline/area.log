@@ -1,0 +1,160 @@
+15. Printing statistics.
+
+=== AESPipe_BlackBox ===
+
+        +----------Local Count, excluding submodules.
+        | 
+    26939 wires
+    37307 wire bits
+      104 public wires
+    10311 public wire bits
+        9 ports
+       78 port bits
+    31121 cells
+     4534   $_ANDNOT_
+       16   $_AND_
+     4220   $_DFFE_PN0P_
+       32   $_DFFE_PP_
+        2   $_DFF_PN0_
+        1   $_DFF_PN1_
+    15657   $_MUX_
+      139   $_NAND_
+       11   $_NOR_
+     2182   $_NOT_
+       15   $_ORNOT_
+     2133   $_OR_
+      257   $_XNOR_
+     1922   $_XOR_
+       42 submodules
+       13   aes_mix_columns
+        1   aes_round_key
+       14   aes_shift_rows
+       14   aes_sub_bytes
+
+=== aes_mix_columns ===
+
+        +----------Local Count, excluding submodules.
+        | 
+      555 wires
+     1400 wire bits
+       83 public wires
+      928 public wire bits
+        2 ports
+      256 port bits
+      600 cells
+       56   $_NOT_
+      140   $_XNOR_
+      404   $_XOR_
+
+=== aes_round_key ===
+
+        +----------Local Count, excluding submodules.
+        | 
+      943 wires
+     2860 wire bits
+       32 public wires
+     1753 public wire bits
+       10 ports
+      780 port bits
+     1802 cells
+      184   $_ANDNOT_
+        4   $_AND_
+      402   $_DFFE_PN0P_
+        1   $_DFFE_PN1P_
+        1   $_DFF_PN0_
+      554   $_MUX_
+        1   $_NAND_
+       12   $_NOR_
+      314   $_NOT_
+        4   $_ORNOT_
+       48   $_OR_
+       76   $_XNOR_
+      201   $_XOR_
+        1 submodules
+        1   aes_sbox
+
+=== aes_sbox ===
+
+        +----------Local Count, excluding submodules.
+        | 
+     5150 wires
+     7004 wire bits
+      258 public wires
+     2112 public wire bits
+        2 ports
+       64 port bits
+     4924 cells
+     1100   $_ANDNOT_
+       68   $_AND_
+       16   $_NAND_
+       64   $_NOR_
+       36   $_ORNOT_
+     3640   $_OR_
+
+=== aes_shift_rows ===
+
+        +----------Local Count, excluding submodules.
+        | 
+        2 wires
+      256 wire bits
+        2 public wires
+      256 public wire bits
+        2 ports
+      256 port bits
+
+=== aes_sub_bytes ===
+
+        +----------Local Count, excluding submodules.
+        | 
+       11 wires
+      544 wire bits
+       11 public wires
+      544 public wire bits
+        2 ports
+      256 port bits
+        4 submodules
+        4   aes_sbox
+
+=== design hierarchy ===
+
+        +----------Count including submodules.
+        | 
+   321391 AESPipe_BlackBox
+      600 aes_mix_columns
+     1802 aes_round_key
+     4924   aes_sbox
+     4924   aes_sbox
+
+        +----------Count including submodules.
+        | 
+   328829 wires
+   468795 wire bits
+    16103 public wires
+   155712 public wire bits
+      215 ports
+    15002 port bits
+        - memories
+        - memory bits
+        - processes
+   321391 cells
+    67418   $_ANDNOT_
+     3896   $_AND_
+     4622   $_DFFE_PN0P_
+        1   $_DFFE_PN1P_
+       32   $_DFFE_PP_
+        3   $_DFF_PN0_
+        1   $_DFF_PN1_
+    16211   $_MUX_
+     1052   $_NAND_
+     3671   $_NOR_
+     3224   $_NOT_
+     2071   $_ORNOT_
+   209661   $_OR_
+     2153   $_XNOR_
+     7375   $_XOR_
+       42 submodules
+       13   aes_mix_columns
+        1   aes_round_key
+       14   aes_shift_rows
+       14   aes_sub_bytes
+
