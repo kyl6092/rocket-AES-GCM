@@ -9,6 +9,8 @@ class AESPipe_BlackBox extends ExtModule {
         val we = IO(Input(Bool()))
         val address = IO(Input(UInt(8.W)))
         val datain = IO(Input(UInt(32.W)))
+        val valid_i  = IO(Output(Bool()))
+        val valid_o  = IO(Output(Bool()))
         val dataout = IO(Output(UInt(32.W)))
     
     addResource("/vsrc/aes_pipeline/bandwidth32/aes.v")
@@ -27,6 +29,8 @@ class AESpipe_Wrapper extends Module {
         val we = Input(Bool())
         val address = Input(UInt(8.W))
         val datain = Input(UInt(32.W))
+        val valid_i  = Output(Bool())
+        val valid_o  = Output(Bool())
         val dataout = Output(UInt(32.W))
     })
 
@@ -40,4 +44,6 @@ class AESpipe_Wrapper extends Module {
     aes_pipe.datain := io.datain
 
     io.dataout := aes_pipe.dataout
+    io.valid_i   := aes_pipe.valid_i
+    io.valid_o   := aes_pipe.valid_o
 }

@@ -5,6 +5,8 @@ module AESPipe_BlackBox(
     input we,
     input [7 : 0] address,
     input [31:0] datain,
+    output reg valid_i,
+    output reg valid_o,
     output reg [31:0] dataout
 );
 
@@ -27,6 +29,7 @@ localparam ADDR_KEY_END        = 8'h17; // modified here temporarily
 
 localparam ENC = 1'b1;
 localparam DEC = 1'b0;
+
 integer i;
 genvar inst_i, inst_j;
 
@@ -34,7 +37,6 @@ reg [1:0] st, nxt_st;
 
 reg core_ready;
 reg [1:0] cnt, wr_cnt;
-reg valid;
 
 reg [1:0] level;
 reg [1:0] opmode;
@@ -142,6 +144,8 @@ always@(posedge clk or negedge reset_n) begin: reg_update
         state <= 0;
         cnt <= 0;
         wr_cnt <= 0;
+        valid_i <= 0;
+        valid_o <= 0;
         for(i = 0; i<8 ; i=i+1) begin
             keys[i] <= 0;
         end
@@ -205,6 +209,8 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                     if (key_valid[1] && level == 2) begin
                         round_key_mem[key_address] <= round_key_pre[255:128];
                     end
+                    if (key_finish)
+                        valid_i <= 1'b1;
                 end
                 OPER: begin
                     if (address == ADDR_DATA) begin
@@ -219,33 +225,27 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                             cnt <= cnt + 1;
                         end
 
-                        if (round_valid[round_end] == 1'b1 || valid) begin
+                        if (round_valid[round_end] == 1'b1 || valid_o) begin
                             wr_cnt <= wr_cnt + 1;
                             case(wr_cnt)
                                 0: begin
                                     dataout <= cipher[31:0];
-                                    valid <= round_valid[round_end];
+                                    valid_o <= round_valid[round_end];
                                 end
                                 1: dataout <= cipher[63:32];
                                 2: dataout <= cipher[95:64];
                                 3: begin
                                     dataout <= cipher[127:96];
-                                    valid <= 1'b0;
                                 end
                             endcase
                         end
 
                         for (i = 0; i < 14; i=i+1) begin
-                            if (i==0) begin
+                            if (i==0)
                                 round_state[i+1] <= round_state[i] ^ round_key_mem[i];
-                            end
-                            else begin
+                            else
                                 round_state[i+1] <= round_state_mix[i-1] ^ round_key_mem[i];
-                            end
                         end
-/*                        for (i = 0; i < 15; i=i+1) begin
-                            
-                        end*/
                     end
                 end
             endcase

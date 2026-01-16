@@ -14,6 +14,9 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
   val input_fptr = getClass.getClassLoader.getResourceAsStream(input_filename)
   val cipher_fptr = getClass.getClassLoader.getResourceAsStream(cipher_filename)
   val decipher_fptr = getClass.getClassLoader.getResourceAsStream(decipher_filename)
+
+  // variables
+  var mode = 0
   var total = 0
   var processed = 0
   val verbose = 0
@@ -29,11 +32,11 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
   val AES128 = 0
   val AES192 = 1
   val AES256 = 2
-//   val ADDR_RESULT0 = 48
 
   // Testcase settings
   val KEYLEN = 8
-  val SIZE_OF_DATA = 32
+  val SIZE_OF_DATA = 104
+  mode = AES256
 
   describe ("TestAES_pipe encipher") {
     it ("do checking waveform") {
@@ -49,20 +52,23 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
         // TestCase Preparation
         val key_buffer = new Array[Byte](KEYLEN*4)
         val input_buffer = new Array[Byte](16)
-        val cipher_buffer = new Array[Byte](16)
+        val cipher_buffer = new Array[Byte](SIZE_OF_DATA)
+        var result_buffer = new Array[Byte](SIZE_OF_DATA)
+
         val key_len = key_fptr.read(key_buffer)
         var input_len = 0
         var cipher_len = 0
 
         // System Config
-        val CFG = ((ENC<<4) | (AES128))&0x1f
+        val CFG = ((ENC<<4) | (mode))&0x1f
         c.io.address.poke(ADDR_CONFIG)
         c.io.datain.poke(CFG)
         c.clock.step()
 
         // Monitor variable
         var cycle = 0
-        var iter = 0
+        var idx  = 0
+        var success = 0
 
         // Key Data Transferring
         for (i <- 0 until KEYLEN) {
@@ -77,11 +83,17 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
           cycle+=1
         }
 
+        // Key expansion
         c.io.address.poke(ADDR_CTRL)
         c.io.datain.poke(1)
-        c.clock.step(20)
+        c.clock.step()
+        while(c.io.valid_i.peek().litValue != 1) {
+          c.clock.step()
+          cycle+=1
+        }
         c.io.address.poke(ADDR_DATA)
 
+        // Data Stream
         while (processed < SIZE_OF_DATA) {
           // Ensure to read a complete block
           while (total < 16) {
@@ -102,12 +114,66 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
               println("Plain Text: "+tmp.toHexString)
             }
             c.io.datain.poke(tmp)
+
+            // Read data stream
+            if (c.io.valid_o.peek().litValue == 1) {
+              val tmp = c.io.dataout.peek().litValue
+              val byte1 = (tmp>>24 & 0xff).toByte
+              val byte2 = (tmp>>16 & 0xff).toByte
+              val byte3 = (tmp>>8 & 0xff).toByte
+              val byte4 = (tmp & 0xff).toByte
+              result_buffer(idx)   = byte1
+              result_buffer(idx+1) = byte2
+              result_buffer(idx+2) = byte3
+              result_buffer(idx+3) = byte4
+              idx+=4
+            }
             c.clock.step()
             cycle+=1
           }
         }
 
-        c.clock.step(20)        
+        // Continue reading data stream
+        while (idx < SIZE_OF_DATA) {
+          if (c.io.valid_o.peek().litValue == 1) {
+            val tmp = c.io.dataout.peek().litValue
+            val byte1 = (tmp>>24 & 0xff).toByte
+            val byte2 = (tmp>>16 & 0xff).toByte
+            val byte3 = (tmp>>8 & 0xff).toByte
+            val byte4 = (tmp & 0xff).toByte
+            result_buffer(idx)   = byte1
+            result_buffer(idx+1) = byte2
+            result_buffer(idx+2) = byte3
+            result_buffer(idx+3) = byte4
+            idx+=4
+          }
+          c.clock.step()
+          cycle+=1
+        }
+        idx = 0
+
+        // Ensure to read complete blocks
+        while (total < SIZE_OF_DATA) {
+          cipher_len = cipher_fptr.read(cipher_buffer, total, SIZE_OF_DATA-total)
+          total+=cipher_len
+        }
+        // Comparison with godlen data
+        total = 0
+        while (idx < SIZE_OF_DATA) {
+          val output = result_buffer(idx)&0xff
+          val golden = cipher_buffer(idx)&0xff
+          if ( output == golden)
+            success += 1
+          if (verbose==1) {
+            println("output: ",result_buffer(idx))
+            println("golden: ",cipher_buffer(idx))
+          }
+          idx+=1
+        }
+        if (success == SIZE_OF_DATA)
+          println("Success!")
+        else
+          println("Failure!")
         
         // Report Clock Cycle
         print("Cycles = "+cycle.toString+"\n\n")
