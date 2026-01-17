@@ -1,4 +1,4 @@
-module AESPipe_BlackBox(
+module AESCTR_BlackBox(
     input clk,
     input reset_n,
     input chip_en,
@@ -19,13 +19,16 @@ localparam AES192 = 1;
 localparam AES256 = 2;
 
 localparam ECB = 0;
+localparam CTR = 1;
 /* TO-DO extensions */
 
 localparam ADDR_CTRL = 8'h08;
 localparam ADDR_DATA = 8'h09;
 localparam ADDR_CFG = 8'h0a;
 localparam ADDR_KEY_START      = 8'h10;
-localparam ADDR_KEY_END        = 8'h17; // modified here temporarily
+localparam ADDR_KEY_END        = 8'h17;
+localparam ADDR_IV_START      = 8'h20;
+localparam ADDR_IV_END        = 8'h23;
 
 localparam ENC = 1'b1;
 localparam DEC = 1'b0;
@@ -33,7 +36,6 @@ localparam DEC = 1'b0;
 integer i;
 genvar inst_i, inst_j;
 
-// FSM
 reg [1:0] st, nxt_st;
 
 // System related
@@ -52,6 +54,9 @@ wire [3:0] key_address;
 reg [31:0] keys [0:7];
 reg [127:0] round_key_mem [0:14];
 wire [255:0] round_key, round_key_pre;
+reg [31:0] IV [0:3];
+reg [127:0] CB;
+wire [127:0] nxt_CB;
 
 // State related
 reg [127:0] state;
@@ -62,10 +67,20 @@ wire [127:0] round_state_rot [0:13];
 wire [127:0] round_state_mix [0:13];
 reg [127:0] cipher;
 reg [3:0] round_end;
+wire [127:0] plaintext;
+reg [127:0] ciphertext;
+
+// FIFO_mini
+reg push, pop;
 
 always@(*) begin: key_assignment
     for (i = 0; i < 8; i=i+1) begin
         init_key[i*32 +: 32] = keys[i];
+    end
+end
+always@(*) begin: CB_assignment
+    for (i = 0; i < 4; i=i+1) begin
+        CB[i*32 +: 32] = IV[i];
     end
 end
 
@@ -82,6 +97,19 @@ aes_round_key u_round_key(
     .round_key(round_key)
 );
 
+aes_inc32 u_inc32(
+    .in(CB),
+    .out(nxt_CB)
+);
+
+fifo_mini u_fifo(
+    .clk(clk),
+    .reset_n(reset_n),
+    .push(push),
+    .datain(state),
+    .pop(pop),
+    .dataout(plaintext)
+);
 
 generate
     for (inst_i = 1; inst_i <= 14; inst_i=inst_i+1) begin
@@ -139,16 +167,18 @@ end
 
 always@(posedge clk or negedge reset_n) begin: reg_update
     if(!reset_n) begin
+        // system
         core_ready <= 1'b0;
         key_ready <= 1'b0;
         opmode <= ECB;
         level <= AES128;
         encdec <= ENC;
-        state <= 0;
         cnt <= 0;
         wr_cnt <= 0;
         valid_i <= 0;
         valid_o <= 0;
+        // key, state
+        state <= 0;
         for(i = 0; i<8 ; i=i+1) begin
             keys[i] <= 0;
         end
@@ -158,6 +188,12 @@ always@(posedge clk or negedge reset_n) begin: reg_update
         end
         round_valid <= 0;
         round_end <= 0;
+        // CTR
+        pop <= 1'b0;
+        push <= 1'b0;
+        for(i = 0; i<4 ; i=i+1) begin
+            IV[i] <= 0;
+        end
     end
     else begin
         if(chip_en) begin
@@ -174,6 +210,8 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                 end
                 else if (address >= ADDR_KEY_START && address <= ADDR_KEY_END)
                     keys[address[2:0]] <= datain;
+                else if (address >= ADDR_IV_START && address <= ADDR_IV_END)
+                    IV[address[1:0]] <= datain;
             end
             case(st)
                 IDLE: begin
@@ -219,29 +257,59 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                     if (address == ADDR_DATA) begin
                         if (cnt == 3) begin
                             round_valid <= (round_valid << 1) | 15'd1;
-                            round_state[0] <= {datain, state[127:32]};
+                            if (opmode == CTR)
+                                round_state[0] <= CB;
+                            else
+                                round_state[0] <= {datain, state[127:32]};
+                            state <= {datain, state[127:32]};
+                            IV[0] <= nxt_CB[31:0];
+                            IV[1] <= nxt_CB[63:32];
+                            IV[2] <= nxt_CB[95:64];
+                            IV[3] <= nxt_CB[127:96];
                             cnt <= 0;
+                            push <= 1;
                         end
                         else begin
                             round_valid <= (round_valid << 1);
                             state <= {datain, state[127:32]};
                             cnt <= cnt + 1;
+                            push <= 0;
                         end
 
                         if (round_valid[round_end] == 1'b1 || valid_o) begin
                             wr_cnt <= wr_cnt + 1;
-                            case(wr_cnt)
-                                0: begin
-                                    dataout <= cipher[31:0];
-                                    valid_o <= round_valid[round_end];
-                                end
-                                1: dataout <= cipher[63:32];
-                                2: dataout <= cipher[95:64];
-                                3: begin
-                                    dataout <= cipher[127:96];
-                                end
-                            endcase
+                            if (opmode == CTR) begin
+                                case(wr_cnt)
+                                    0: begin
+                                        dataout <= ciphertext[31:0];
+                                        valid_o <= round_valid[round_end];
+                                    end
+                                    1: dataout <= ciphertext[63:32];
+                                    2: dataout <= ciphertext[95:64];
+                                    3: begin
+                                        dataout <= ciphertext[127:96];
+                                    end
+                                endcase
+                            end
+                            else begin
+                                case(wr_cnt)
+                                    0: begin
+                                        dataout <= cipher[31:0];
+                                        valid_o <= round_valid[round_end];
+                                    end
+                                    1: dataout <= cipher[63:32];
+                                    2: dataout <= cipher[95:64];
+                                    3: begin
+                                        dataout <= cipher[127:96];
+                                    end
+                                endcase
+                            end
                         end
+
+                        if (round_valid[round_end-2] == 1'b1) 
+                            pop <= 1;
+                        else
+                            pop <= 0;
 
                         for (i = 0; i < 14; i=i+1) begin
                             if (i==0)
@@ -264,6 +332,10 @@ always@(*) begin
         1: cipher = round_state_rot[11] ^ round_key_mem[12];
         2: cipher = round_state_rot[13] ^ round_key_mem[14];
     endcase
+end
+
+always@(*) begin
+    ciphertext = plaintext ^ cipher;
 end
 
 endmodule

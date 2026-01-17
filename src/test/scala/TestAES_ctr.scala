@@ -1,19 +1,21 @@
-import AES_pipe._
+import AES_ctr._
 import chisel3._
 import chisel3.simulator.scalatest.ChiselSim
 import org.scalatest.funspec.AnyFunSpec
 
 
-class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
+class TestAES_ctr_encipher extends AnyFunSpec with ChiselSim {
   // I/O related
-  val key_filename =      "ECB/key.bin"
-  val input_filename =    "ECB/Input.bin"
-  val cipher_filename =   "ECB/cipher.bin"
-  val decipher_filename = "ECB/decipher.bin"
+  val key_filename =      "CTR/key.bin"
+  val input_filename =    "CTR/Input.bin"
+  val cipher_filename =   "CTR/cipher.bin"
+  val decipher_filename = "CTR/decipher.bin"
+  val iv_filename =       "CTR/iv.bin"
   val key_fptr = getClass.getClassLoader.getResourceAsStream(key_filename)
   val input_fptr = getClass.getClassLoader.getResourceAsStream(input_filename)
   val cipher_fptr = getClass.getClassLoader.getResourceAsStream(cipher_filename)
   val decipher_fptr = getClass.getClassLoader.getResourceAsStream(decipher_filename)
+  val iv_fptr = getClass.getClassLoader.getResourceAsStream(iv_filename)
 
   // variables
   var mode = 0
@@ -27,20 +29,24 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
   val ADDR_DATA = 9
   val ADDR_CONFIG = 10
   val ADDR_KEY0   = 16
+  val ADDR_IV0    = 32
   val ENC = 1
   val DEC = 0
   val AES128 = 0
   val AES192 = 1
   val AES256 = 2
+  val ECB = 0
+  val CTR = 1
+  val opmode = CTR
 
   // Testcase settings
   val KEYLEN = 8
-  val SIZE_OF_DATA = 32
-  mode = AES128
+  val SIZE_OF_DATA = 16
+  mode = AES256
 
-  describe ("TestAES_pipe encipher") {
+  describe ("TestAES_ctr_encipher") {
     it ("do checking waveform") {
-      simulate(new AESpipe_Wrapper) { c=>
+      simulate(new AESCTR_Wrapper) { c=>
         // System Reset
         c.io.rst_n.poke(false.B)
         c.clock.step()
@@ -51,16 +57,29 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
 
         // TestCase Preparation
         val key_buffer = new Array[Byte](KEYLEN*4)
+        val iv_buffer = new Array[Byte](16)
         val input_buffer = new Array[Byte](16)
         val cipher_buffer = new Array[Byte](SIZE_OF_DATA)
         var result_buffer = new Array[Byte](SIZE_OF_DATA)
 
-        val key_len = key_fptr.read(key_buffer)
-        var input_len = 0
-        var cipher_len = 0
+        var key_len     = 0
+        var iv_len      = 0
+        var input_len   = 0
+        var cipher_len  = 0
 
+        while (total < KEYLEN*4) {
+          key_len = key_fptr.read(key_buffer, total, KEYLEN*4-total)
+          total+=key_len
+        }
+        total = 0
+
+        while (total < 16) {
+          iv_len = iv_fptr.read(iv_buffer, total, 16-total)
+          total+=iv_len
+        }
+        total = 0
         // System Config
-        val CFG = ((ENC<<4) | (mode))&0x1f
+        val CFG = ((ENC<<4) | opmode<<2 | (mode))&0x1f
         c.io.address.poke(ADDR_CONFIG)
         c.io.datain.poke(CFG)
         c.clock.step()
@@ -77,6 +96,18 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
           val byte2 = key_buffer(4*i+1) & 0xff
           val byte3 = key_buffer(4*i+2) & 0xff
           val byte4 = key_buffer(4*i+3) & 0xff
+          var tmp = (byte1 << 24 | byte2 << 16 | byte3 << 8 | byte4)
+          c.io.datain.poke(tmp)
+          c.clock.step()
+          cycle+=1
+        }
+        // IV Data Transferring
+        for (i <- 0 until 4) {
+          c.io.address.poke(ADDR_IV0+i)
+          val byte1 = iv_buffer(4*i) & 0xff
+          val byte2 = iv_buffer(4*i+1) & 0xff
+          val byte3 = iv_buffer(4*i+2) & 0xff
+          val byte4 = iv_buffer(4*i+3) & 0xff
           var tmp = (byte1 << 24 | byte2 << 16 | byte3 << 8 | byte4)
           c.io.datain.poke(tmp)
           c.clock.step()
@@ -132,7 +163,6 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
             cycle+=1
           }
         }
-
         // Continue reading data stream
         while (idx < SIZE_OF_DATA) {
           if (c.io.valid_o.peek().litValue == 1) {
@@ -183,6 +213,7 @@ class TestAES_pipe_encipher extends AnyFunSpec with ChiselSim {
         input_fptr.close()
         cipher_fptr.close()
         decipher_fptr.close()
+        iv_fptr.close()
       }
     }
   }
