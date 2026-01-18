@@ -1,4 +1,4 @@
-module AESCTR_BlackBox(
+module AESGCM_BlackBox(
     input clk,
     input reset_n,
     input chip_en,
@@ -20,11 +20,13 @@ localparam AES256 = 2;
 
 localparam ECB = 0;
 localparam CTR = 1;
+localparam GCM = 2;
 /* TO-DO extensions */
 
 localparam ADDR_CTRL = 8'h08;
 localparam ADDR_DATA = 8'h09;
 localparam ADDR_CFG = 8'h0a;
+localparam ADDR_DATA_END = 8'hb;
 localparam ADDR_KEY_START      = 8'h10;
 localparam ADDR_KEY_END        = 8'h17;
 localparam ADDR_IV_START      = 8'h20;
@@ -44,6 +46,7 @@ reg [1:0] cnt, wr_cnt;
 reg [1:0] level;
 reg [1:0] opmode;
 reg encdec;
+reg h_reg_flag;
 
 // Key related
 reg key_ready;
@@ -73,6 +76,17 @@ reg [127:0] ciphertext;
 // FIFO_mini
 reg push, pop;
 
+// GCM
+reg [63:0] cipher_len, additon_len;
+wire [127:0] block_len;
+reg [63:0] current_len;
+reg [1:0] warmup_cnt_wr, warmup_cnt_rd;
+reg [127:0] h_reg, c_reg, g_reg, j_reg;
+wire [127:0] g;
+reg c_ready;
+wire g_valid;
+reg [127:0] tag;
+
 always@(*) begin: key_assignment
     for (i = 0; i < 8; i=i+1) begin
         init_key[i*32 +: 32] = keys[i];
@@ -83,6 +97,8 @@ always@(*) begin: CB_assignment
         CB[i*32 +: 32] = IV[i];
     end
 end
+
+assign block_len = {additon_len, cipher_len};
 
 aes_round_key u_round_key(
     .clk(clk),
@@ -109,6 +125,23 @@ fifo_mini u_fifo(
     .datain(state),
     .pop(pop),
     .dataout(plaintext)
+);
+
+// gf128_mul u_gf128_mul(
+//     .clk(clk),
+//     .rst_n(reset_n),
+//     .valid_i  (c_ready),
+//     .a_i      (c_reg),
+//     .b_i      (h_reg),
+//     .valid_o  (g_valid),
+//     .result_o (g_reg)
+// );
+
+aes_gf128_mul u_gf128_mul(
+    .in1(c_reg),
+    .in2(h_reg),
+    .valid(g_valid),
+    .out(g)
 );
 
 generate
@@ -194,6 +227,18 @@ always@(posedge clk or negedge reset_n) begin: reg_update
         for(i = 0; i<4 ; i=i+1) begin
             IV[i] <= 0;
         end
+        // GCM
+        warmup_cnt_wr <= 0;
+        warmup_cnt_rd <= 0;
+        additon_len <= 0;
+        cipher_len <= 0;
+        current_len <= 0;
+        h_reg <= 0;
+        h_reg_flag <= 1;
+        c_reg <= 0;
+        j_reg <= 0;
+        g_reg <= 0;
+        tag <= 0;
     end
     else begin
         if(chip_en) begin
@@ -252,22 +297,30 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                     end
                     if (key_finish)
                         valid_i <= 1'b1;
+                    if (opmode == GCM) begin
+                        warmup_cnt_rd <= 1;
+                        warmup_cnt_wr <= 2;
+                        IV[3] <= 32'd1; // if len(IV) == 96
+                    end
                 end
                 OPER: begin
-                    if (address == ADDR_DATA) begin
-                        if (cnt == 3) begin
+                    if (address == ADDR_DATA || address == ADDR_DATA_END) begin
+                        if (cnt == 3 && (address == ADDR_DATA || (address == ADDR_DATA_END && (warmup_cnt_wr > 0)))) begin
                             round_valid <= (round_valid << 1) | 15'd1;
-                            if (opmode == CTR)
+                            if (opmode == CTR || opmode == GCM)
                                 round_state[0] <= CB;
                             else
                                 round_state[0] <= {datain, state[127:32]};
+
                             state <= {datain, state[127:32]};
                             IV[0] <= nxt_CB[31:0];
                             IV[1] <= nxt_CB[63:32];
                             IV[2] <= nxt_CB[95:64];
                             IV[3] <= nxt_CB[127:96];
+
                             cnt <= 0;
                             push <= 1;
+                            warmup_cnt_wr <= warmup_cnt_wr - 1;
                         end
                         else begin
                             round_valid <= (round_valid << 1);
@@ -278,7 +331,7 @@ always@(posedge clk or negedge reset_n) begin: reg_update
 
                         if (round_valid[round_end] == 1'b1 || valid_o) begin
                             wr_cnt <= wr_cnt + 1;
-                            if (opmode == CTR) begin
+                            if (opmode == CTR || opmode == GCM) begin
                                 case(wr_cnt)
                                     0: begin
                                         dataout <= ciphertext[31:0];
@@ -310,6 +363,40 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                             pop <= 1;
                         else
                             pop <= 0;
+
+                        if (round_valid[round_end-3] == 1'b1 && h_reg_flag) begin
+                            h_reg <= {cipher[31:0], cipher[63:32], cipher[95:64], cipher[127:96]};
+                            h_reg_flag <= 0;
+                        end
+
+                        if (round_valid[round_end] == 1'b1) begin
+                            if (warmup_cnt_rd != 0)
+                                warmup_cnt_rd <= warmup_cnt_rd - 1;
+                            case(warmup_cnt_rd)
+                                2'd1:
+                                    j_reg <= {ciphertext[31:0], ciphertext[63:32], ciphertext[95:64], ciphertext[127:96]};
+                                2'd0: begin
+                                    c_reg <= g_reg ^ {ciphertext[31:0], ciphertext[63:32], ciphertext[95:64], ciphertext[127:96]};
+                                    current_len <= current_len + 128;
+                                end
+                                2'd3, 2'd2: begin
+                                    h_reg <= h_reg;
+                                    j_reg <= j_reg;
+                                    c_reg <= c_reg;
+                                end
+                            endcase
+                        end
+
+                        if (g_valid)
+                            g_reg <= g;
+                        if (cipher_len == current_len)
+                            // c_reg <= g_reg ^ {block_len[31:0], block_len[63:32], block_len[95:64], block_len[127:96]};
+                            c_reg <= g_reg ^ block_len;
+                        if (address == ADDR_DATA && cnt == 3)
+                            cipher_len <= cipher_len + 128;
+                        if ((cipher_len == current_len) && g_valid)
+                            tag <= g_reg ^ j_reg;
+                            
 
                         for (i = 0; i < 14; i=i+1) begin
                             if (i==0)
