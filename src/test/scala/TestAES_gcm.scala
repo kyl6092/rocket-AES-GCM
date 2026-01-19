@@ -11,11 +11,13 @@ class TestAES_gcm_encipher extends AnyFunSpec with ChiselSim {
   val cipher_filename =   "GCM/cipher.bin"
   val decipher_filename = "GCM/decipher.bin"
   val iv_filename =       "GCM/iv.bin"
+  val tag_filename =       "GCM/tag.bin"
   val key_fptr = getClass.getClassLoader.getResourceAsStream(key_filename)
   val input_fptr = getClass.getClassLoader.getResourceAsStream(input_filename)
   val cipher_fptr = getClass.getClassLoader.getResourceAsStream(cipher_filename)
   val decipher_fptr = getClass.getClassLoader.getResourceAsStream(decipher_filename)
   val iv_fptr = getClass.getClassLoader.getResourceAsStream(iv_filename)
+  val tag_fptr = getClass.getClassLoader.getResourceAsStream(tag_filename)
 
   // variables
   var mode = 0
@@ -43,7 +45,7 @@ class TestAES_gcm_encipher extends AnyFunSpec with ChiselSim {
 
   // Testcase settings
   val KEYLEN = 4
-  val SIZE_OF_DATA = 16
+  val SIZE_OF_DATA = 1024
   val IVLEN = 12
   mode = AES128
 
@@ -64,11 +66,14 @@ class TestAES_gcm_encipher extends AnyFunSpec with ChiselSim {
         val input_buffer = new Array[Byte](16)
         val cipher_buffer = new Array[Byte](SIZE_OF_DATA)
         var result_buffer = new Array[Byte](SIZE_OF_DATA)
+        var tag_expect_buffer = new Array[Byte](16)
+        var tag_rt_buffer = new Array[Byte](16)
 
         var key_len     = 0
         var iv_len      = 0
         var input_len   = 0
         var cipher_len  = 0
+        var tag_len     = 0
 
         while (total < KEYLEN*4) {
           key_len = key_fptr.read(key_buffer, total, KEYLEN*4-total)
@@ -150,65 +155,108 @@ class TestAES_gcm_encipher extends AnyFunSpec with ChiselSim {
             c.io.datain.poke(tmp)
 
             // Read data stream
-            // if (c.io.valid_o.peek().litValue == 1) {
-            //   val tmp = c.io.dataout.peek().litValue
-            //   val byte1 = (tmp>>24 & 0xff).toByte
-            //   val byte2 = (tmp>>16 & 0xff).toByte
-            //   val byte3 = (tmp>>8 & 0xff).toByte
-            //   val byte4 = (tmp & 0xff).toByte
-            //   result_buffer(idx)   = byte1
-            //   result_buffer(idx+1) = byte2
-            //   result_buffer(idx+2) = byte3
-            //   result_buffer(idx+3) = byte4
-            //   idx+=4
-            // }
+            if (c.io.valid_o.peek().litValue == 1) {
+              val tmp = c.io.dataout.peek().litValue
+              val byte1 = (tmp>>24 & 0xff).toByte
+              val byte2 = (tmp>>16 & 0xff).toByte
+              val byte3 = (tmp>>8 & 0xff).toByte
+              val byte4 = (tmp & 0xff).toByte
+              result_buffer(idx)   = byte1
+              result_buffer(idx+1) = byte2
+              result_buffer(idx+2) = byte3
+              result_buffer(idx+3) = byte4
+              idx+=4
+            }
             c.clock.step()
             cycle+=1
           }
         }
         c.io.address.poke(ADDR_DATA_END)
-        c.clock.step(100)
         // Continue reading data stream
-        // while (idx < SIZE_OF_DATA) {
-        //   if (c.io.valid_o.peek().litValue == 1) {
-        //     val tmp = c.io.dataout.peek().litValue
-        //     val byte1 = (tmp>>24 & 0xff).toByte
-        //     val byte2 = (tmp>>16 & 0xff).toByte
-        //     val byte3 = (tmp>>8 & 0xff).toByte
-        //     val byte4 = (tmp & 0xff).toByte
-        //     result_buffer(idx)   = byte1
-        //     result_buffer(idx+1) = byte2
-        //     result_buffer(idx+2) = byte3
-        //     result_buffer(idx+3) = byte4
-        //     idx+=4
-        //   }
-        //   c.clock.step()
-        //   cycle+=1
-        // }
-        // idx = 0
+        while (idx < SIZE_OF_DATA) {
+          if (c.io.valid_o.peek().litValue == 1) {
+            val tmp = c.io.dataout.peek().litValue
+            val byte1 = (tmp>>24 & 0xff).toByte
+            val byte2 = (tmp>>16 & 0xff).toByte
+            val byte3 = (tmp>>8 & 0xff).toByte
+            val byte4 = (tmp & 0xff).toByte
+            result_buffer(idx)   = byte1
+            result_buffer(idx+1) = byte2
+            result_buffer(idx+2) = byte3
+            result_buffer(idx+3) = byte4
+            idx+=4
+          }
+          c.clock.step()
+          cycle+=1
+        }
+        idx = 0
+        c.clock.step()
+        while (idx < 16) {
+          if (c.io.valid_o.peek().litValue == 1) {
+            val tmp = c.io.dataout.peek().litValue
+            val byte1 = (tmp>>24 & 0xff).toByte
+            val byte2 = (tmp>>16 & 0xff).toByte
+            val byte3 = (tmp>>8 & 0xff).toByte
+            val byte4 = (tmp & 0xff).toByte
+            tag_rt_buffer(idx)   = byte1
+            tag_rt_buffer(idx+1) = byte2
+            tag_rt_buffer(idx+2) = byte3
+            tag_rt_buffer(idx+3) = byte4
+            idx+=4
+          }
+          c.clock.step()
+          cycle+=1
+        }
+        idx = 0
 
         // Ensure to read complete blocks
-        // while (total < SIZE_OF_DATA) {
-        //   cipher_len = cipher_fptr.read(cipher_buffer, total, SIZE_OF_DATA-total)
-        //   total+=cipher_len
-        // }
-        // // Comparison with godlen data
-        // total = 0
-        // while (idx < SIZE_OF_DATA) {
-        //   val output = result_buffer(idx)&0xff
-        //   val golden = cipher_buffer(idx)&0xff
-        //   if ( output == golden)
-        //     success += 1
-        //   if (verbose==1) {
-        //     println("output: ",result_buffer(idx))
-        //     println("golden: ",cipher_buffer(idx))
-        //   }
-        //   idx+=1
-        // }
-        // if (success == SIZE_OF_DATA)
-        //   println("Success!")
-        // else
-        //   println("Failure!")
+        while (total < SIZE_OF_DATA) {
+          cipher_len = cipher_fptr.read(cipher_buffer, total, SIZE_OF_DATA-total)
+          total+=cipher_len
+        }
+        // Comparison with godlen data
+        total = 0
+        while (idx < SIZE_OF_DATA) {
+          val output = result_buffer(idx)&0xff
+          val golden = cipher_buffer(idx)&0xff
+          if ( output == golden)
+            success += 1
+          if (verbose==1) {
+            println("output: ",result_buffer(idx))
+            println("golden: ",cipher_buffer(idx))
+          }
+          idx+=1
+        }
+        if (success == SIZE_OF_DATA)
+          println("Cipher Success!")
+        else
+          println("Cipher Failure!")
+        success = 0
+        idx = 0
+
+        while (total < 16) {
+          tag_len = tag_fptr.read(tag_expect_buffer, total, 16-total)
+          total+=tag_len
+        }
+        total = 0
+        while (idx < 16) {
+          val output = tag_rt_buffer(idx)&0xff
+          val golden = tag_expect_buffer(idx)&0xff
+          if (output == golden)
+            success += 1
+          if (verbose==1) {
+            println("output: ",tag_rt_buffer(idx))
+            println("golden: ",tag_expect_buffer(idx))
+          }
+          idx+=1
+        }
+        if (success == 16)
+          println("Tag Success!")
+        else
+          println("Tag Failure!")
+        success = 0
+        idx = 0
+        
         
         // Report Clock Cycle
         print("Cycles = "+cycle.toString+"\n\n")

@@ -46,7 +46,7 @@ reg [1:0] cnt, wr_cnt;
 reg [1:0] level;
 reg [1:0] opmode;
 reg encdec;
-reg h_reg_flag;
+
 
 // Key related
 reg key_ready;
@@ -72,20 +72,23 @@ reg [127:0] cipher;
 reg [3:0] round_end;
 wire [127:0] plaintext;
 reg [127:0] ciphertext;
+wire [127:0] ciphertext_reg;
 
 // FIFO_mini
 reg push, pop;
+reg gcm_push, gcm_pop;
 
 // GCM
-reg [63:0] cipher_len, additon_len;
+reg [63:0] cipher_len, additon_len, current_len, tag_len;
 wire [127:0] block_len;
-reg [63:0] current_len;
-reg [1:0] warmup_cnt_wr, warmup_cnt_rd;
+reg warm_up;
+
 reg [127:0] h_reg, c_reg, g_reg, j_reg;
+reg h_reg_flag, j_reg_flag, g_reg_flag;
+reg [3:0] g_reg_cnt;
 wire [127:0] g;
-reg c_ready;
-wire g_valid;
 reg [127:0] tag;
+reg tag_finish;
 
 always@(*) begin: key_assignment
     for (i = 0; i < 8; i=i+1) begin
@@ -96,6 +99,18 @@ always@(*) begin: CB_assignment
     for (i = 0; i < 4; i=i+1) begin
         CB[i*32 +: 32] = IV[i];
     end
+end
+always@(*) begin
+    cipher = 0;
+    case(level)
+        0: cipher = round_state_rot[9] ^ round_key_mem[10];
+        1: cipher = round_state_rot[11] ^ round_key_mem[12];
+        2: cipher = round_state_rot[13] ^ round_key_mem[14];
+    endcase
+end
+
+always@(*) begin
+    ciphertext = plaintext ^ cipher;
 end
 
 assign block_len = {additon_len, cipher_len};
@@ -118,7 +133,7 @@ aes_inc32 u_inc32(
     .out(nxt_CB)
 );
 
-fifo_mini u_fifo(
+fifo_mini u0_fifo(
     .clk(clk),
     .reset_n(reset_n),
     .push(push),
@@ -127,21 +142,21 @@ fifo_mini u_fifo(
     .dataout(plaintext)
 );
 
-// gf128_mul u_gf128_mul(
-//     .clk(clk),
-//     .rst_n(reset_n),
-//     .valid_i  (c_ready),
-//     .a_i      (c_reg),
-//     .b_i      (h_reg),
-//     .valid_o  (g_valid),
-//     .result_o (g_reg)
-// );
-
-aes_gf128_mul u_gf128_mul(
+aes_ghash u_ghash(
+    .clk(clk),
+    .reset_n(reset_n),
     .in1(c_reg),
     .in2(h_reg),
-    .valid(g_valid),
     .out(g)
+);
+
+fifo_mini u1_fifo(
+    .clk(clk),
+    .reset_n(reset_n),
+    .push(gcm_push),
+    .datain({ciphertext[31:0], ciphertext[63:32], ciphertext[95:64], ciphertext[127:96]}),
+    .pop(gcm_pop),
+    .dataout(ciphertext_reg)
 );
 
 generate
@@ -228,13 +243,21 @@ always@(posedge clk or negedge reset_n) begin: reg_update
             IV[i] <= 0;
         end
         // GCM
-        warmup_cnt_wr <= 0;
-        warmup_cnt_rd <= 0;
+        warm_up <= 0;
+        h_reg_flag <= 0;
+        j_reg_flag <= 0;
+        g_reg_flag <= 0;
+        g_reg_cnt <= 0;
+        tag_finish <= 0;
+        gcm_pop <= 1'b0;
+        gcm_push <= 1'b0;
+
         additon_len <= 0;
         cipher_len <= 0;
         current_len <= 0;
+        tag_len <= 0;
+
         h_reg <= 0;
-        h_reg_flag <= 1;
         c_reg <= 0;
         j_reg <= 0;
         g_reg <= 0;
@@ -298,15 +321,20 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                     if (key_finish)
                         valid_i <= 1'b1;
                     if (opmode == GCM) begin
-                        warmup_cnt_rd <= 1;
-                        warmup_cnt_wr <= 2;
                         IV[3] <= 32'd1; // if len(IV) == 96
                     end
                 end
                 OPER: begin
                     if (address == ADDR_DATA || address == ADDR_DATA_END) begin
-                        if (cnt == 3 && (address == ADDR_DATA || (address == ADDR_DATA_END && (warmup_cnt_wr > 0)))) begin
-                            round_valid <= (round_valid << 1) | 15'd1;
+                        if (cnt == 3) begin
+                            if (warm_up)
+                                round_valid <= (round_valid << 1) | 15'd1;
+                            else
+                                warm_up <= 1'd1;
+
+                            if (warm_up)
+                                current_len <= current_len + 128;
+
                             if (opmode == CTR || opmode == GCM)
                                 round_state[0] <= CB;
                             else
@@ -320,11 +348,11 @@ always@(posedge clk or negedge reset_n) begin: reg_update
 
                             cnt <= 0;
                             push <= 1;
-                            warmup_cnt_wr <= warmup_cnt_wr - 1;
                         end
                         else begin
                             round_valid <= (round_valid << 1);
                             state <= {datain, state[127:32]};
+                            if (current_len != cipher_len || current_len == 0)
                             cnt <= cnt + 1;
                             push <= 0;
                         end
@@ -334,15 +362,23 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                             if (opmode == CTR || opmode == GCM) begin
                                 case(wr_cnt)
                                     0: begin
+                                        gcm_push <= 1'd1;
+                                        if (g_reg_flag) begin
+                                            gcm_pop <= 1'd1;
+                                        end
                                         dataout <= ciphertext[31:0];
                                         valid_o <= round_valid[round_end];
                                     end
-                                    1: dataout <= ciphertext[63:32];
-                                    2: dataout <= ciphertext[95:64];
-                                    3: begin
-                                        dataout <= ciphertext[127:96];
+                                    1: begin
+                                        gcm_push <= 1'd0;
+                                        gcm_pop <= 1'd0;
+                                        dataout <= ciphertext[63:32];
                                     end
+                                    2: dataout <= ciphertext[95:64];
+                                    3: dataout <= ciphertext[127:96];
                                 endcase
+                                if (!valid_o && opmode == GCM)
+                                    g_reg_flag <= 1'd1;
                             end
                             else begin
                                 case(wr_cnt)
@@ -352,51 +388,80 @@ always@(posedge clk or negedge reset_n) begin: reg_update
                                     end
                                     1: dataout <= cipher[63:32];
                                     2: dataout <= cipher[95:64];
-                                    3: begin
-                                        dataout <= cipher[127:96];
-                                    end
+                                    3: dataout <= cipher[127:96];
                                 endcase
                             end
                         end
+                        else
+                            wr_cnt <= 0;
 
                         if (round_valid[round_end-2] == 1'b1) 
                             pop <= 1;
                         else
                             pop <= 0;
 
-                        if (round_valid[round_end-3] == 1'b1 && h_reg_flag) begin
+                        if (round_valid[round_end-6] == 1'b1 && !h_reg_flag) begin
                             h_reg <= {cipher[31:0], cipher[63:32], cipher[95:64], cipher[127:96]};
-                            h_reg_flag <= 0;
+                            h_reg_flag <= 1;
+                        end
+                        
+                        if (round_valid[round_end-3] == 1'b1 && !j_reg_flag) begin
+                            j_reg <= {ciphertext[31:0], ciphertext[63:32], ciphertext[95:64], ciphertext[127:96]};
+                            j_reg_flag <= 1;
                         end
 
-                        if (round_valid[round_end] == 1'b1) begin
-                            if (warmup_cnt_rd != 0)
-                                warmup_cnt_rd <= warmup_cnt_rd - 1;
-                            case(warmup_cnt_rd)
-                                2'd1:
-                                    j_reg <= {ciphertext[31:0], ciphertext[63:32], ciphertext[95:64], ciphertext[127:96]};
-                                2'd0: begin
-                                    c_reg <= g_reg ^ {ciphertext[31:0], ciphertext[63:32], ciphertext[95:64], ciphertext[127:96]};
-                                    current_len <= current_len + 128;
+                        if (address == ADDR_DATA && cnt == 3)
+                            cipher_len <= cipher_len + 128;
+                            
+                        
+                        
+                        if (g_reg_flag) begin
+                            if (g_reg_cnt == 3) begin
+                                if (tag_len > cipher_len) begin
+                                    g_reg_cnt <= 4;
                                 end
-                                2'd3, 2'd2: begin
-                                    h_reg <= h_reg;
-                                    j_reg <= j_reg;
-                                    c_reg <= c_reg;
+                                else
+                                    g_reg_cnt <= 0;
+                                tag_len <= tag_len + 128;
+                                if (tag_len == cipher_len)
+                                    c_reg <= g ^ block_len;
+                                else if (tag_len < cipher_len)
+                                    c_reg <= g ^ {ciphertext[31:0], ciphertext[63:32], ciphertext[95:64], ciphertext[127:96]};
+                                    // c_reg <= g ^ ciphertext_reg;
+                            end
+                            else if (g_reg_cnt < 5)
+                                g_reg_cnt <= g_reg_cnt + 1;
+                        end
+                        else begin
+                            if (round_valid[round_end] == 1'b1) begin
+                                c_reg <= {ciphertext[31:0], ciphertext[63:32], ciphertext[95:64], ciphertext[127:96]};
+                                tag_len <= tag_len + 128;
+                            end
+                        end
+
+                        if (g_reg_cnt == 4) begin
+                            tag <= g ^ j_reg;
+                            tag_finish <= 1'd1;
+                        end
+                        else if (g_reg_cnt == 5)
+                            tag_finish <= 1'd0;
+
+                        if (tag_finish || (valid_o && g_reg_cnt == 5)) begin
+                            wr_cnt <= wr_cnt + 1;
+                            case(wr_cnt)
+                                0: begin
+                                    dataout <= tag[127:96];
+                                    valid_o <= tag_finish;
+                                end
+                                1: dataout <= tag[95:64];
+                                2: dataout <= tag[63:32];
+                                3: begin
+                                    dataout <= tag[31:0];
                                 end
                             endcase
                         end
-
-                        if (g_valid)
-                            g_reg <= g;
-                        if (cipher_len == current_len)
-                            // c_reg <= g_reg ^ {block_len[31:0], block_len[63:32], block_len[95:64], block_len[127:96]};
-                            c_reg <= g_reg ^ block_len;
-                        if (address == ADDR_DATA && cnt == 3)
-                            cipher_len <= cipher_len + 128;
-                        if ((cipher_len == current_len) && g_valid)
-                            tag <= g_reg ^ j_reg;
-                            
+                        else begin
+                        end
 
                         for (i = 0; i < 14; i=i+1) begin
                             if (i==0)
@@ -411,18 +476,5 @@ always@(posedge clk or negedge reset_n) begin: reg_update
     end
 end
 
-
-always@(*) begin
-    cipher = 0;
-    case(level)
-        0: cipher = round_state_rot[9] ^ round_key_mem[10];
-        1: cipher = round_state_rot[11] ^ round_key_mem[12];
-        2: cipher = round_state_rot[13] ^ round_key_mem[14];
-    endcase
-end
-
-always@(*) begin
-    ciphertext = plaintext ^ cipher;
-end
 
 endmodule

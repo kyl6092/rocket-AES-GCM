@@ -21,12 +21,13 @@ class AESGCM_BlackBox extends ExtModule {
     addResource("/vsrc/aes_gcm/aes_mix_columns.v")
     addResource("/vsrc/aes_gcm/aes_inc32.v")
     addResource("/vsrc/aes_gcm/fifo.v")
+    addResource("/vsrc/aes_gcm/aes_ghash.v")
+    addResource("/vsrc/aes_gcm/aes_gf128_reduce.v")
     addResource("/vsrc/aes_gcm/aes_gf128_mul.v")
-
-    // addResource("/vsrc/aes_gcm/gf128_mul.sv")
-    // addResource("/vsrc/aes_gcm/gf128_reduction.sv")
-    // addResource("/vsrc/aes_gcm/karatsuba.sv")
-    // addResource("/vsrc/aes_gcm/karatsuba_core.sv")
+    addResource("/vsrc/aes_gcm/aes_gf64_mul.v")
+    addResource("/vsrc/aes_gcm/aes_gf32_mul.v")
+    addResource("/vsrc/aes_gcm/aes_gf16_mul.v")
+    addResource("/vsrc/aes_gcm/aes_gf8_mul.v")
 }
 
 

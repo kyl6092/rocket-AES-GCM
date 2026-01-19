@@ -55,7 +55,7 @@ if __name__ == '__main__':
             ctr = Counter.new(128, initial_value=iv)
             cipher = AES.new(key, mode=opmode, counter=ctr)
         elif args.mode == 'GCM':
-            iv_bytes = random.randbytes(16)
+            iv_bytes = random.randbytes(12)
             cipher = AES.new(key, mode=opmode, nonce=iv_bytes)
         else:
             cipher = AES.new(key, mode=opmode)
