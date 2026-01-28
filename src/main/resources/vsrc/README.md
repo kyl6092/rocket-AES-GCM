@@ -26,6 +26,54 @@
             └── aes_inv_sbox.v
     ```
 - ### `vsrc/aes_pipeline/`
-    The verilog code are modified from [ryanycs/aes](https://github.com/ryanycs/aes/tree/main), which is developed using SystemVerilog and simulated by Synopsys VCS simulator. For this repository, the evaluation and validation are based on open-source tools. To better compare with Chisel language, the HDL is re-written in Verilog.
+    The verilog code are modified from [ryanycs/aes](https://github.com/ryanycs/aes/tree/main), which is developed using SystemVerilog and simulated by Synopsys VCS simulator. For this repository, the evaluation and validation are based on open-source tools. To better compare with Chisel language, the HDL is re-written in Verilog and Chisel.
+    ```bash
+    Directory Tree
+    aes_pipeline/
+    └── bandwidth32
+        ├── aes_mix_columns.v
+        ├── aes_round_key.v
+        ├── aes_sbox.v
+        ├── aes_shift_rows.v
+        ├── aes_sub_bytes.v
+        └── aes.v
+    ```
+    ```bash
+    Module Tree
+    aes.v
+    ├── aes_round_key.v
+    │   └──aes_sbox.v
+    ├── aes_sub_bytes.v
+    │   └──aes_sbox.v
+    ├── aes_shift_rows.v
+    └── aes_mix_columns.v
+    ```
+- ### `vsrc/aes_ctr/`
+    The counter mode in the AES instantiates a new module called `inc32`, which is used to count number for encryption. The AES-CTR will further perform XOR on the encrypted counter number with the input plaintext, producing the ciphertext. Since the input rate and encryption rate are different, so we also add a First-In-First-Out (FIFO) memory to resolve this.
+    ```bash
+    Directory Tree
+    aes_ctr/
+    ├── aes_inc32.v
+    ├── fifo.v
+    ├── aes_mix_columns.v
+    ├── aes_round_key.v
+    ├── aes_sbox.v
+    ├── aes_shift_rows.v
+    ├── aes_sub_bytes.v
+    └── aes.v
+    ```
+    ```bash
+    Module Tree
+    aes.v
+    ├── aes_round_key.v
+    │   └──aes_sbox.v
+    ├── aes_sub_bytes.v
+    │   └──aes_sbox.v
+    ├── aes_shift_rows.v
+    ├── aes_mix_columns.v
+    ├── aes_inc32.v
+    └── fifo.v
+- ### `vsrc/aes_gcm/`
+    pending..
 
-- ### example/
+---
